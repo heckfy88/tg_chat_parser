@@ -13,8 +13,54 @@ from openpyxl import Workbook
 load_dotenv()
 
 
+def generate_excel(participants: dict, output_file):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Participants"
+
+    ws.append([
+        "Дата экспорта",
+        "UserID",
+        "Nickname",
+    ])
+
+    today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    for key, value in participants.items():
+        ws.append([
+            today,
+            key,
+            value.get("username", ""),
+        ])
+
+    wb.save(output_file)
+
+
+def extract_text(text_field):
+    """
+    text может быть строкой или массивом.
+    Собираем всё в строку.
+    """
+    if isinstance(text_field, str):
+        return text_field
+    if isinstance(text_field, list):
+        out = ""
+        for part in text_field:
+            if isinstance(part, str):
+                out += part
+            elif isinstance(part, dict):
+                out += part.get("text", "")
+        return out
+    return ""
+
+
 class BotCommandHandler:
+    _excel_user_threshold: int = int(os.environ.get('EXCEL_USER_THRESHOLD', ''))
     USERNAME_REGEX = re.compile(r'@([A-Za-z0-9_]+)')
+
+    def __init__(self):
+        if self._excel_user_threshold < 0: # 0 - всегда выводим в excel
+            raise Exception('Excel user threshold cannot be negative')
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Sends explanation on how to use the bot."""
@@ -59,13 +105,11 @@ class BotCommandHandler:
 
             message_text = "\n".join(lines)
             await update.message.reply_text(message_text)
-
-        # ---------- ЕСЛИ МЕНЬШЕ 50 УЧАСТНИКОВ — Excel не нужен ----------
             return list(participants_by_id.values())
 
         # ---------- ИНАЧЕ — ГЕНЕРИРУЕМ EXCEL ----------
         output = BytesIO()
-        self.generate_excel(participants_by_id, output)
+        generate_excel(participants_by_id, output)
         output.seek(0)  # обязательно вернуться в начало файла
 
         await update.message.reply_document(document=output,
@@ -108,92 +152,9 @@ class BotCommandHandler:
                             participants_by_username[uname] = True
 
                 # ---------- 3) упоминания в тексте ----------
-                text = self.extract_text(msg.get("text"))
+                text = extract_text(msg.get("text"))
                 for uname in self.USERNAME_REGEX.findall(text):
                     participants_by_username[f"@{uname}"] = True
 
             return participants_by_id, participants_by_username
 
-    def extract_text(self, text_field):
-        """
-        text может быть строкой или массивом.
-        Собираем всё в строку.
-        """
-        if isinstance(text_field, str):
-            return text_field
-        if isinstance(text_field, list):
-            out = ""
-            for part in text_field:
-                if isinstance(part, str):
-                    out += part
-                elif isinstance(part, dict):
-                    out += part.get("text", "")
-            return out
-        return ""
-
-    def generate_excel(self, participants: dict, output_file):
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Participants"
-
-        ws.append([
-            "Дата экспорта",
-            "UserID",
-            "Nickname",
-        ])
-
-        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        for key, value in participants.items():
-            ws.append([
-                today,
-                key,
-                value.get("username", ""),
-            ])
-
-        wb.save(output_file)
-
-
-class JsonMessageHandler:
-    _max_file_size: int = int(os.environ.get('MAX_FILE_SIZE', ''))
-    _max_files_amount: int = int(os.environ.get('MAX_FILES_AMOUNT', ''))
-
-    def __init__(self):
-        if self._max_file_size == '':
-            raise Exception("Max file size is not set. Notify admins")
-        if not self._max_file_size.is_integer():
-            raise Exception("Max file size is not integer. Notify admins")
-        if self._max_files_amount == '':
-            raise Exception("Max files amount is not set. Notify admins")
-        if not self._max_files_amount.is_integer():
-            raise Exception("Max files amount is not integer. Notify admins")
-
-    async def handle_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if (len(context.user_data.get("files", "")) + 1) > self._max_files_amount:
-            await update.message.reply_text(f"Превышено максимально допустимое количество файлов: {self._max_files_amount}")
-            return
-
-        document = update.message.document
-
-        if not document.file_name.lower().endswith(".json"):
-            await update.message.reply_text("Принимаю только JSON-файлы 📄")
-            return
-
-        if document.file_size > (self._max_file_size * 1000 * 1000):
-            await update.message.reply_text(f"Размер файла превышает максимально допустимый: {self._max_file_size} MB")
-            return
-
-
-        # Сохраняем сам объект документа
-        files = context.user_data.get("files", [])
-        files.append(document)
-        context.user_data["files"] = files
-
-        if len(files) == self._max_files_amount:
-            await update.message.reply_text(f"Загружен {len(files)}-й файл, введите команду обработки")
-
-        await update.message.reply_text(
-            f"Добавлен файл: {document.file_name}\n"
-            f"Всего файлов: {len(files)}\n\n"
-            "Отправляй остальные или напиши /process."
-        )
