@@ -1,10 +1,12 @@
 # Тут будет описание
 
 ## Как заполнить .env? 
+```
 TELEGRAM_BOT_TOKEN=<токен вашего бота телеграм>
 MAX_FILE_SIZE=<???>
 MAX_FILES_AMOUNT=<???>
 EXCEL_USER_THRESHOLD=<???>
+```
 
 ## Как локально развернуть проект? Без докера
 1. Скопируйте этот репозиторий ```git clone git@github.com:heckfy88/tg_chat_parser.git```
