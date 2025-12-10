@@ -11,6 +11,7 @@ EXCEL_USER_THRESHOLD=<???>
 2. Перейдите в него ```cd /tg_chat_parser```
 3. Создайте виртуальное окружение ```python -m venv venv```
 4. Активируйте виртуальное окружение ```source /venv/bin/activate/```
+5. Установите зависимости ```pip insdtall -r requirements.txt```
 5. Заполните файл .env
 6. Запустите файл /tg_chat_parser/bot/chat_bot.py
 
