@@ -13,6 +13,6 @@ EXCEL_USER_THRESHOLD=<???>
 4. Активируйте виртуальное окружение ```source /venv/bin/activate/```
 5. Установите зависимости ```pip insdtall -r requirements.txt```
 5. Заполните файл .env
-6. Запустите файл /tg_chat_parser/bot/chat_bot.py
+6. Запустите файл main.py
 
 ## Как локально развеинуть проект? С докером
