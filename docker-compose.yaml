@@ -1,0 +1,6 @@
+services:
+  tg_bot:
+    build: .
+    container_name: tg_chat_parser
+    restart: unless-stopped
+    env_file: .env
