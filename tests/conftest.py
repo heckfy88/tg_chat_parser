@@ -5,8 +5,6 @@ from unittest.mock import MagicMock, Mock, AsyncMock
 
 def pytest_configure(config):
     """Устанавливает переменные окружения до импорта модулей"""
-    # Устанавливаем переменные окружения до импорта тестовых модулей
-    # чтобы избежать ошибок при инициализации классов на уровне модуля
     os.environ['TELEGRAM_BOT_TOKEN'] = 'test_token_12345'
     os.environ['EXCEL_USER_THRESHOLD'] = '10'
     os.environ['MAX_FILE_SIZE'] = '20'

@@ -80,13 +80,11 @@ class TestGenerateExcel:
         ws = wb.active
         
         assert ws.title == "Participants"
-        assert ws.max_row == 3  # заголовок + 2 участника
+        assert ws.max_row == 3
         
-        # Проверка заголовков
         headers = [cell.value for cell in ws[1]]
         assert headers == ["Дата экспорта", "UserID", "Nickname"]
         
-        # Проверка данных
         rows = list(ws.iter_rows(min_row=2, values_only=True))
         assert len(rows) == 2
         assert ("user123", "john_doe") in [(row[1], row[2]) for row in rows]
@@ -102,7 +100,7 @@ class TestGenerateExcel:
         wb = load_workbook(output)
         ws = wb.active
         
-        assert ws.max_row == 1  # только заголовок
+        assert ws.max_row == 1
 
     def test_generate_excel_with_missing_username(self):
         """Тест генерации Excel файла с отсутствующим username"""
@@ -119,7 +117,6 @@ class TestGenerateExcel:
         
         rows = list(ws.iter_rows(min_row=2, values_only=True))
         usernames = [row[2] for row in rows]
-        # openpyxl может возвращать None для пустых ячеек
         assert "" in usernames or None in usernames
         assert "jane_smith" in usernames
 
@@ -138,15 +135,8 @@ class TestBotCommandHandler:
         assert handler._excel_user_threshold == 10
 
     def test_init_with_negative_threshold(self, monkeypatch):
-        """Тест инициализации с отрицательным порогом
-        
-        Примечание: этот тест проверяет валидацию в __init__,
-        но _excel_user_threshold уже инициализирован на уровне класса.
-        Тест проверяет, что __init__ выбрасывает исключение при отрицательном значении.
-        """
-        # Устанавливаем отрицательное значение через monkeypatch
+        """Тест инициализации с отрицательным порогом"""
         monkeypatch.setenv('EXCEL_USER_THRESHOLD', '-1')
-        # Перезагружаем модуль, чтобы класс переинициализировался
         import importlib
         import bot.handlers.command_handler
         importlib.reload(bot.handlers.command_handler)
@@ -160,10 +150,7 @@ class TestBotCommandHandler:
         """Тест команды /start"""
         await handler.start(mock_update, mock_context)
         
-        # Проверка, что files инициализирован
         assert mock_context.user_data["files"] == []
-        
-        # Проверка отправки сообщения
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args[0][0]
         assert "Hi! I can analyze exported Telegram chat data" in call_args
@@ -172,7 +159,6 @@ class TestBotCommandHandler:
     @pytest.mark.asyncio
     async def test_extract_participants_from_files_basic(self, handler, mock_update, mock_context, sample_telegram_json):
         """Тест извлечения участников из файлов"""
-        # Создаем мок документа
         mock_document = MagicMock()
         mock_file = AsyncMock()
         mock_file.download_as_bytearray = AsyncMock(
@@ -186,15 +172,11 @@ class TestBotCommandHandler:
             mock_update, mock_context
         )
         
-        # Проверка участников по ID
         assert "user123" in participants_by_id
         assert participants_by_id["user123"]["username"] == "john_doe"
         assert "user456" in participants_by_id
         assert participants_by_id["user456"]["username"] == "jane_smith"
-        # Deleted Account не должен быть добавлен
         assert "user789" not in participants_by_id
-        
-        # Проверка упоминаний
         assert "@alice" in participants_by_username
         assert "@bob" in participants_by_username
 
@@ -230,13 +212,7 @@ class TestBotCommandHandler:
 
     @pytest.mark.asyncio
     async def test_extract_participants_from_files_invalid_json(self, handler, mock_update, mock_context):
-        """Тест обработки невалидного JSON
-        
-        Примечание: из-за того, что return находится внутри цикла for document in files,
-        если файл невалидный, будет continue, и если это единственный файл,
-        то return не выполнится, и функция вернет None.
-        Это баг в коде, но тест проверяет текущее поведение.
-        """
+        """Тест обработки невалидного JSON"""
         mock_document = MagicMock()
         mock_file = AsyncMock()
         mock_file.download_as_bytearray = AsyncMock(
@@ -246,14 +222,10 @@ class TestBotCommandHandler:
         
         mock_context.user_data["files"] = [mock_document]
         
-        # Из-за return внутри цикла, если файл невалидный и он единственный,
-        # функция вернет None (return не выполнится)
         result = await handler.extract_participants_from_files(
             mock_update, mock_context
         )
         
-        # Функция вернет None, так как return находится внутри цикла,
-        # и если файл невалидный (continue), return не выполнится
         assert result is None
 
     @pytest.mark.asyncio
@@ -308,7 +280,6 @@ class TestBotCommandHandler:
     @pytest.mark.asyncio
     async def test_process_command_text_output(self, handler, mock_update, mock_context, sample_telegram_json):
         """Тест команды /process с текстовым выводом (мало участников)"""
-        # Устанавливаем порог выше количества участников
         handler._excel_user_threshold = 10
         
         mock_document = MagicMock()
@@ -322,23 +293,18 @@ class TestBotCommandHandler:
         
         result = await handler.process(mock_update, mock_context)
         
-        # Проверка отправки текстового сообщения
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args[0][0]
         assert "Результаты анализа файлов" in call_args
         assert "Участники чата" in call_args
         assert "Упоминания" in call_args
-        
-        # Проверка возвращаемого значения
         assert isinstance(result, list)
 
     @pytest.mark.asyncio
     async def test_process_command_excel_output(self, handler, mock_update, mock_context, sample_telegram_json):
         """Тест команды /process с выводом в Excel (много участников)"""
-        # Устанавливаем порог ниже количества участников
         handler._excel_user_threshold = 1
         
-        # Создаем данные с большим количеством участников
         large_json = {
             "messages": [
                 {
@@ -362,14 +328,11 @@ class TestBotCommandHandler:
         
         result = await handler.process(mock_update, mock_context)
         
-        # Проверка отправки Excel файла
         mock_update.message.reply_document.assert_called_once()
         call_kwargs = mock_update.message.reply_document.call_args[1]
         assert "document" in call_kwargs
         assert "filename" in call_kwargs
         assert call_kwargs["filename"].endswith(".xlsx")
-        
-        # Проверка возвращаемого значения
         assert result == "Файл отправлен"
 
     @pytest.mark.asyncio
@@ -388,18 +351,13 @@ class TestBotCommandHandler:
         
         result = await handler.process(mock_update, mock_context)
         
-        # Проверка отправки текстового сообщения
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args[0][0]
         assert "Нет участников" in call_args
 
     @pytest.mark.asyncio
     async def test_extract_participants_multiple_files(self, handler, mock_update, mock_context):
-        """Тест извлечения участников из нескольких файлов
-        
-        Примечание: текущая реализация обрабатывает только первый файл
-        из-за return внутри цикла for document in files
-        """
+        """Тест извлечения участников из нескольких файлов"""
         json_data_1 = {
             "messages": [
                 {
@@ -442,9 +400,7 @@ class TestBotCommandHandler:
             mock_update, mock_context
         )
         
-        # Текущая реализация обрабатывает только первый файл
         assert "user1" in participants_by_id
         assert participants_by_id["user1"]["username"] == "user_one"
-        # Второй файл не обрабатывается из-за return внутри цикла
         assert "user2" not in participants_by_id
 
