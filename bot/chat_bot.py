@@ -3,8 +3,9 @@ import os
 from dotenv import load_dotenv
 from telegram.ext import Application, MessageHandler, filters, CommandHandler
 
+from bot.filters.not_json_filter import NotJsonDocument
 from bot.handlers.command_handler import BotCommandHandler
-from bot.handlers.message_handler import JsonMessageHandler
+from bot.handlers.message_handler import CustomMessageHandler
 
 load_dotenv()
 
@@ -18,12 +19,16 @@ class ChatBot:
             raise Exception("Bot Token is not set")
         self.__application = Application.builder().token(self.__token).build()
         self.command_handler = BotCommandHandler()
-        self.message_handler = JsonMessageHandler()
+        self.message_handler = CustomMessageHandler()
 
     def setup(self):
         self.__application.add_handler(
             MessageHandler(filters.Document.FileExtension("json"), self.message_handler.handle_file)
         )
+        self.__application.add_handler(
+            MessageHandler(filters.Document.ALL & NotJsonDocument(), self.message_handler.handle_not_json_file)
+        )
+
         self.__application.add_handler(CommandHandler("start", self.command_handler.start))
         self.__application.add_handler(CommandHandler("process", self.command_handler.process))
 

@@ -1,20 +1,20 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
-from bot.handlers.message_handler import JsonMessageHandler
+from bot.handlers.message_handler import CustomMessageHandler
 
 
 class TestJsonMessageHandler:
-    """Тесты для класса JsonMessageHandler"""
+    """Тесты для класса CustomMessageHandler"""
 
     @pytest.fixture
     def handler(self, mock_env_vars):
-        """Фикстура для создания экземпляра JsonMessageHandler"""
-        return JsonMessageHandler()
+        """Фикстура для создания экземпляра CustomMessageHandler"""
+        return CustomMessageHandler()
 
     def test_init_with_valid_env_vars(self, mock_env_vars):
         """Тест инициализации с валидными переменными окружения"""
-        handler = JsonMessageHandler()
+        handler = CustomMessageHandler()
         assert handler._max_file_size == 20
         assert handler._max_files_amount == 5
 

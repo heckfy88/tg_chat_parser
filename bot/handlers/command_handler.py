@@ -156,5 +156,5 @@ class BotCommandHandler:
                 for uname in self.USERNAME_REGEX.findall(text):
                     participants_by_username[f"@{uname}"] = True
 
-            return participants_by_id, participants_by_username
+        return participants_by_id, participants_by_username
 

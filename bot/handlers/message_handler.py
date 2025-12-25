@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 load_dotenv()
 
 
-class JsonMessageHandler:
+class CustomMessageHandler:
     _max_file_size: int = int(os.environ.get('MAX_FILE_SIZE', ''))
     _max_files_amount: int = int(os.environ.get('MAX_FILES_AMOUNT', ''))
 
@@ -18,10 +18,6 @@ class JsonMessageHandler:
             return
 
         document = update.message.document
-
-        if not document.file_name.lower().endswith(".json"):
-            await update.message.reply_text("Принимаю только JSON-файлы 📄")
-            return
 
         if document.file_size > (self._max_file_size * 1000 * 1000):
             await update.message.reply_text(f"Размер файла превышает максимально допустимый: {self._max_file_size} MB")
@@ -40,3 +36,7 @@ class JsonMessageHandler:
             f"Всего файлов: {len(files)}\n\n"
             "Отправляй остальные или напиши /process."
         )
+
+    async def handle_not_json_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("Принимаю только JSON-файлы 📄")
+        return
