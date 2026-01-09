@@ -19,6 +19,11 @@ class CustomMessageHandler:
             return
 
         document = update.message.document
+        filename = (document.file_name or "").lower()
+
+        if not (filename.endswith(".json") or filename.endswith(".html") or filename.endswith(".htm")):
+            await update.message.reply_text("Принимаю только JSON или HTML файлы 📄")
+            return
 
         if document.file_size and document.file_size > self.MAX_TG_BOT_FILE_BYTES:
             await update.message.reply_text(
@@ -28,17 +33,21 @@ class CustomMessageHandler:
             )
             return
 
-        if document.file_size > (self._max_file_size * 1000 * 1000):
-            await update.message.reply_text(f"Размер файла превышает максимально допустимый: {self._max_file_size} MB")
+        if document.file_size and document.file_size > (self._max_file_size * 1000 * 1000):
+            await update.message.reply_text(
+                f"Размер файла превышает максимально допустимый: {self._max_file_size} MB"
+            )
             return
 
-        # Сохраняем сам объект документа
+        # Сохраняем объект документа
         files = context.user_data.get("files", [])
         files.append(document)
         context.user_data["files"] = files
 
         if len(files) == self._max_files_amount:
-            await update.message.reply_text(f"Загружен {len(files)}-й файл, введите команду обработки")
+            await update.message.reply_text(
+                f"Загружен {len(files)}-й файл, введите команду обработки"
+            )
 
         await update.message.reply_text(
             f"Добавлен файл: {document.file_name}\n"
@@ -46,6 +55,15 @@ class CustomMessageHandler:
             "Отправляй остальные или напиши /process."
         )
 
-    async def handle_not_json_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("Принимаю только JSON-файлы 📄")
-        return
+    async def handle_not_supported_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        document = update.message.document
+
+        if not document:
+            return
+
+        await update.message.reply_text(
+            "Этот тип файла не поддерживается\n\n"
+            "Пожалуйста, отправь файл в формате:\n"
+            "• JSON (.json)\n"
+            "• HTML (.html, .htm)"
+        )

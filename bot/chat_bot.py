@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from telegram.ext import Application, MessageHandler, filters, CommandHandler
 
-from bot.filters.not_json_filter import NotJsonDocument
+from bot.filters.not_json_html_filter import NotSupportedDocument
 from bot.handlers.command_handler import BotCommandHandler
 from bot.handlers.message_handler import CustomMessageHandler
 
@@ -23,10 +23,18 @@ class ChatBot:
 
     def setup(self):
         self.__application.add_handler(
-            MessageHandler(filters.Document.FileExtension("json"), self.message_handler.handle_file)
+            MessageHandler(
+                filters.Document.FileExtension("json") |
+                filters.Document.FileExtension("html") |
+                filters.Document.FileExtension("htm"),
+                self.message_handler.handle_file
+            )
         )
         self.__application.add_handler(
-            MessageHandler(filters.Document.ALL & NotJsonDocument(), self.message_handler.handle_not_json_file)
+            MessageHandler(
+                filters.Document.ALL & NotSupportedDocument(),
+                self.message_handler.handle_not_supported_file
+            )
         )
 
         self.__application.add_handler(CommandHandler("start", self.command_handler.start))

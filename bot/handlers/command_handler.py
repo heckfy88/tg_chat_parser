@@ -10,6 +10,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from openpyxl import Workbook
 
+from bs4 import BeautifulSoup
+
 load_dotenv()
 
 
@@ -64,6 +66,47 @@ def extract_text(text_field):
         return out
     return ""
 
+def parse_telegram_export(file_bytes: bytes, filename: str):
+    filename = filename.lower()
+
+    # ---------- JSON ----------
+    if filename.endswith(".json"):
+        data = json.loads(file_bytes.decode("utf-8"))
+        messages = []
+        for msg in data.get("messages", []):
+            messages.append({
+                "from_id": msg.get("from_id"),
+                "from": msg.get("from"),
+                "text": extract_text(msg.get("text")),
+                "text_entities": msg.get("text_entities", []),
+            })
+        return messages
+
+    # ---------- HTML ----------
+    if filename.endswith(".html") or filename.endswith(".htm"):
+        soup = BeautifulSoup(file_bytes, "lxml")
+        messages = []
+
+        for msg_div in soup.select("div.message"):
+            from_name = None
+            from_span = msg_div.select_one(".from_name")
+            if from_span:
+                from_name = from_span.get_text(strip=True)
+
+            text_div = msg_div.select_one(".text")
+            text = text_div.get_text(" ", strip=True) if text_div else ""
+
+            messages.append({
+                "from_id": None,
+                "from": from_name,
+                "text": text,
+                "text_entities": [],
+            })
+
+        return messages
+
+    raise ValueError("Unsupported file format")
+
 
 class BotCommandHandler:
     _excel_user_threshold: int = int(os.environ.get("EXCEL_USER_THRESHOLD", "200"))
@@ -80,8 +123,8 @@ class BotCommandHandler:
             "Hi! I can analyze exported Telegram chat data.\n\n"
             "📌 Please follow these steps:\n"
             "1. Export your Telegram chat using the official export tool.\n"
-            "2. Make sure the file is in `.json` format.\n"
-            "3. Send the `.json` file directly to this bot.\n\n"
+            "2. Make sure the file is in `.json` or `.html` format.\n"
+            "3. Send the `.json` or `.html` file directly to this bot.\n\n"
             "I will process the data and provide you with insights!"
         )
         await update.message.reply_text(instructions)
@@ -148,8 +191,12 @@ class BotCommandHandler:
 
             # Сопоставляем только если у участника from выглядит как @username
             for user in participants_by_id.values():
-                name = (user.get("username") or "").strip().lower()
-                if name.startswith("@") and name == mention_l:
+                # name = (user.get("username") or "").strip().lower()
+                # if name.startswith("@") and name == mention_l:
+                #     user["mentions"].add(mention_l)
+                #     return
+                name = (user.get("username") or "").strip().lower().lstrip("@")
+                if name and name == mention_l.lstrip("@"):
                     user["mentions"].add(mention_l)
                     return
 
@@ -160,37 +207,37 @@ class BotCommandHandler:
             data_bytes = await file.download_as_bytearray()
 
             try:
-                data = json.loads(data_bytes.decode("utf-8"))
+                messages = parse_telegram_export(data_bytes, document.file_name)
             except Exception as e:
-                print(f"Не удалось распарсить файл: {e}")
+                print(f"Не удалось обработать файл {document.file_name}: {e}")
                 continue
 
-            messages = data.get("messages", [])
             for msg in messages:
 
-                # ---------- 1) Участники (from_id + from) ----------
+                # ---------- 1) Участники ----------
                 from_id = msg.get("from_id")
                 from_name = msg.get("from")
 
-                if from_id and from_name and from_name != "Deleted Account":
-                    # создаём один раз
-                    if from_id not in participants_by_id:
-                        participants_by_id[from_id] = {
+                if from_name and from_name != "Deleted Account":
+                    # Для HTML у нас нет from_id → используем имя как ключ
+                    uid = from_id or from_name
+
+                    if uid not in participants_by_id:
+                        participants_by_id[uid] = {
                             "username": from_name,
-                            "mentions": set(),  # <-- здесь будем хранить mentions, если сопоставим
+                            "mentions": set(),
                         }
                     else:
-                        # если раньше было пусто, а тут появилось имя — можно обновить
-                        if not participants_by_id[from_id].get("username"):
-                            participants_by_id[from_id]["username"] = from_name
+                        if not participants_by_id[uid].get("username"):
+                            participants_by_id[uid]["username"] = from_name
 
-                # ---------- 2) упоминания через text_entities ----------
+                # ---------- 2) Упоминания из entities (JSON) ----------
                 for ent in (msg.get("text_entities") or []):
                     if ent.get("type") == "mention":
                         handle_mention(ent.get("text"))
 
-                # ---------- 3) упоминания в тексте ----------
-                text = extract_text(msg.get("text")) or ""
+                # ---------- 3) Упоминания в тексте (JSON + HTML) ----------
+                text = msg.get("text") or ""
                 for uname in self.USERNAME_REGEX.findall(text):
                     if uname:
                         handle_mention(f"@{uname}")
