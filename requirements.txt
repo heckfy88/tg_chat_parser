@@ -1,3 +1,5 @@
 python-dotenv
 python-telegram-bot
 openpyxl
+bs4
+lxml

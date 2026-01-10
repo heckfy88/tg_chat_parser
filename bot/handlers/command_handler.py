@@ -51,6 +51,16 @@ def generate_excel(participants_by_id: Dict[str, Dict[str, Any]],
 
     wb.save(output_file)
 
+def normalize_username(name: str) -> str:
+    if not name:
+        return ""
+
+    name = name.strip()
+    name = re.sub(r"\s+via\s+@[\w_]+", "", name, flags=re.IGNORECASE)
+
+    return name
+
+
 
 def extract_text(text_field):
     """text может быть строкой или массивом. Собираем всё в строку."""
@@ -84,7 +94,13 @@ def parse_telegram_export(file_bytes: bytes, filename: str):
 
     # ---------- HTML ----------
     if filename.endswith(".html") or filename.endswith(".htm"):
-        soup = BeautifulSoup(file_bytes, "lxml")
+        html_text = file_bytes.decode("utf-8", errors="ignore")
+
+        try:
+            soup = BeautifulSoup(html_text, "lxml")
+        except:
+            soup = BeautifulSoup(html_text, "html.parser")
+
         messages = []
 
         for msg_div in soup.select("div.message"):
@@ -94,12 +110,27 @@ def parse_telegram_export(file_bytes: bytes, filename: str):
                 from_name = from_span.get_text(strip=True)
 
             text_div = msg_div.select_one(".text")
-            text = text_div.get_text(" ", strip=True) if text_div else ""
+
+            text = ""
+            mentions = []
+
+            # text = text_div.get_text(" ", strip=True) if text_div else ""
+
+            if text_div:
+                text = text_div.get_text(" ", strip=True)
+
+                for a in text_div.find_all("a", href=True):
+                    href = a["href"]
+                    label = a.get_text(strip=True)
+
+                    if href.startswith("https://t.me/") and label.startswith("@"):
+                        mentions.append(label)
 
             messages.append({
                 "from_id": None,
                 "from": from_name,
                 "text": text,
+                "html_mentions": mentions,
                 "text_entities": [],
             })
 
@@ -144,9 +175,9 @@ class BotCommandHandler:
                     mentions = data.get("mentions", set())
                     mentions_str = ", ".join(sorted(mentions)) if mentions else ""
                     if mentions_str:
-                        lines.append(f"- {data.get('username', '')} (`{uid}`) → {mentions_str}")
+                        lines.append(f"- {data.get('username', '')} → {mentions_str}")
                     else:
-                        lines.append(f"- {data.get('username', '')} (`{uid}`)")
+                        lines.append(f"- {data.get('username', '')}")
             else:
                 lines.append("_Нет участников_")
 
@@ -216,7 +247,8 @@ class BotCommandHandler:
 
                 # ---------- 1) Участники ----------
                 from_id = msg.get("from_id")
-                from_name = msg.get("from")
+                from_name_raw = msg.get("from")
+                from_name = normalize_username(from_name_raw)
 
                 if from_name and from_name != "Deleted Account":
                     # Для HTML у нас нет from_id → используем имя как ключ
@@ -238,9 +270,16 @@ class BotCommandHandler:
 
                 # ---------- 3) Упоминания в тексте (JSON + HTML) ----------
                 text = msg.get("text") or ""
-                for uname in self.USERNAME_REGEX.findall(text):
-                    if uname:
-                        handle_mention(f"@{uname}")
+
+                if isinstance(text, (bytes, bytearray)):
+                    text = text.decode("utf-8", errors="ignore")
+
+                # for uname in self.USERNAME_REGEX.findall(text):
+                #     if uname:
+                #         handle_mention(f"@{uname}")
+
+                for uname in (msg.get("html_mentions") or []):
+                    handle_mention(uname)
 
         # (опционально) если mention сопоставился участнику, он может остаться в unmatched_mentions
         # на случай, когда участник встретился ПОЗЖЕ, чем mention.
