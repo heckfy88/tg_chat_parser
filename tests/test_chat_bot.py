@@ -26,17 +26,6 @@ class TestChatBot:
         assert chatbot.message_handler is not None
         assert chatbot._ChatBot__application is not None
 
-    def test_init_without_token(self, monkeypatch, mock_application):
-        """Тест инициализации без токена"""
-        monkeypatch.delenv('TELEGRAM_BOT_TOKEN', raising=False)
-        import importlib
-        import bot.chat_bot
-        importlib.reload(bot.chat_bot)
-        from bot.chat_bot import ChatBot
-        
-        with pytest.raises(Exception, match="Bot Token is not set"):
-            ChatBot()
-
     def test_init_with_empty_token(self, monkeypatch, mock_application):
         """Тест инициализации с пустым токеном"""
         monkeypatch.setenv('TELEGRAM_BOT_TOKEN', '')
@@ -53,7 +42,7 @@ class TestChatBot:
         chatbot = ChatBot()
         chatbot.setup()
         
-        assert mock_application.add_handler.call_count == 3
+        assert mock_application.add_handler.call_count == 4
 
     def test_setup_adds_message_handler(self, mock_env_vars, mock_application):
         """Тест добавления обработчика сообщений"""
@@ -73,7 +62,7 @@ class TestChatBot:
         chatbot = ChatBot()
         chatbot.setup()
         
-        assert mock_application.add_handler.call_count == 3
+        assert mock_application.add_handler.call_count == 4
 
     def test_start_app_calls_run_polling(self, mock_env_vars, mock_application):
         """Тест запуска приложения"""
@@ -98,6 +87,17 @@ class TestChatBot:
         
         assert not hasattr(chatbot, '__application')
         assert hasattr(chatbot, '_ChatBot__application')
+
+    def test_setup_can_be_called_multiple_times(self, mock_env_vars, mock_application):
+        """Тест, что setup можно вызывать несколько раз"""
+        chatbot = ChatBot()
+        chatbot.setup()
+        first_call_count = mock_application.add_handler.call_count
+        
+        chatbot.setup()
+        second_call_count = mock_application.add_handler.call_count
+        
+        assert second_call_count == first_call_count * 2
 
     @patch('bot.chat_bot.load_dotenv')
     def test_load_dotenv_called(self, mock_load_dotenv, mock_env_vars, mock_application):

@@ -1,84 +1,128 @@
-import json
 import os
 import re
 from datetime import datetime
 from io import BytesIO
-from typing import Dict, Any
+from typing import Dict, Any, Set
 
 from dotenv import load_dotenv
+from openpyxl import Workbook
 from telegram import Update
 from telegram.ext import ContextTypes
-from openpyxl import Workbook
+
+from bot.util.file_util import parse_json_file, parse_html_file
 
 load_dotenv()
 
+USERNAME_RE = re.compile(r"@[A-Za-z0-9_]{5,32}")
 
-def generate_excel(participants: dict, output_file):
+
+def handle_mention(
+        participants_by_id: Dict[str, Dict[str, Any]],
+        unmatched_mentions: Set[str],
+        mention: str
+):
+    if not isinstance(mention, str):
+        return
+
+    mention = mention.strip().lower()
+
+    if not USERNAME_RE.fullmatch(mention):
+        return
+
+    # ---------- сопоставление ----------
+    for user in participants_by_id.values():
+        name = (user.get("username") or "").strip().lower().lstrip("@")
+        if name == mention.lstrip("@"):
+            user["mentions"].add(mention)
+            return
+
+    unmatched_mentions.add(mention)
+
+
+def generate_excel(participants_by_id: Dict[str, Dict[str, Any]],
+                   unmatched_mentions: Set[str],
+                   output_file):
     wb = Workbook()
     ws = wb.active
     ws.title = "Participants"
 
-    ws.append([
-        "Дата экспорта",
-        "UserID",
-        "Nickname",
-    ])
-
+    ws.append(["Дата экспорта", "UserID", "Nickname", "Mention"])
     today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    for key, value in participants.items():
+    # 1) Одна строка на участника
+    for user_id, data in participants_by_id.items():
+        mentions = data.get("mentions", set())
+        if isinstance(mentions, set):
+            mentions_str = ", ".join(sorted(mentions))
+        else:
+            mentions_str = str(mentions) if mentions else ""
+
+        user_id_formatted_string = f"{user_id}" if user_id not in (None, "", data.get('username', '')) else ""
+
         ws.append([
             today,
-            key,
-            value.get("username", ""),
+            user_id_formatted_string,
+            data.get("username", ""),
+            mentions_str,
+        ])
+
+    # 2) В конце — mentions, которые не удалось сопоставить ни с одним участником
+    for uname in sorted(unmatched_mentions):
+        ws.append([
+            today,
+            "",
+            "",
+            uname,  # "@username"
         ])
 
     wb.save(output_file)
 
 
-def extract_text(text_field):
-    """
-    text может быть строкой или массивом.
-    Собираем всё в строку.
-    """
-    if isinstance(text_field, str):
-        return text_field
-    if isinstance(text_field, list):
-        out = ""
-        for part in text_field:
-            if isinstance(part, str):
-                out += part
-            elif isinstance(part, dict):
-                out += part.get("text", "")
-        return out
-    return ""
+def normalize_username(name: str) -> str:
+    if not name:
+        return ""
+
+    name = name.strip()
+    name = re.sub(r"\s+via\s+@[\w_]+", "", name, flags=re.IGNORECASE)
+
+    return name
+
+
+def parse_telegram_export(file_bytes: bytes, filename: str):
+    filename = filename.lower()
+
+    if filename.endswith(".json"):
+        return parse_json_file(file_bytes)
+
+    if filename.endswith(".html") or filename.endswith(".htm"):
+        return parse_html_file(file_bytes)
+
+    raise ValueError("Unsupported file format")
 
 
 class BotCommandHandler:
-    _excel_user_threshold: int = int(os.environ.get('EXCEL_USER_THRESHOLD', ''))
+    _excel_user_threshold: int = int(os.environ.get("EXCEL_USER_THRESHOLD", "50"))
     USERNAME_REGEX = re.compile(r'@([A-Za-z0-9_]+)')
 
     def __init__(self):
-        if self._excel_user_threshold < 0: # 0 - всегда выводим в excel
-            raise Exception('Excel user threshold cannot be negative')
+        if self._excel_user_threshold < 0:  # 0 - всегда выводим в excel
+            raise Exception("Excel user threshold cannot be negative")
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Sends explanation on how to use the bot."""
         context.user_data["files"] = []
 
         instructions = (
-            "Hi! I can analyze exported Telegram chat data.\n\n"
-            "📌 Please follow these steps:\n"
-            "1. Export your Telegram chat using the official export tool.\n"
-            "2. Make sure the file is in `.json` format.\n"
-            "3. The file size must not exceed 20 MB.\n"
-            "4. Send the `.json` file directly to this bot.\n\n"
-            "I will process the data and provide you with insights!"
+            "Привет! Я - бот, который помогает анализировать групповые чаты Telegram\n"
+            "📌Для работы со мной следуй инструкции:\n"
+            "1. Экспортируй свой чат с помощью приложения Telegram.\n"
+            "2. Убедись, что ты получил файлы в форматах .json, .html или .htm.\n"
+            "3. Отправь файлы в чат со мной.\n"
+            "Я обработаю данные и покажу тебе сводку!"
         )
         await update.message.reply_text(instructions)
 
     async def process(self, update, context):
-        participants_by_id, participants_by_username = await self.extract_participants_from_files(update, context)
+        participants_by_id, unmatched_mentions = await self.extract_participants_from_files(update, context)
 
         count = len(participants_by_id)
         print(f"Найдено участников: {count}")
@@ -87,74 +131,93 @@ class BotCommandHandler:
         if count < self._excel_user_threshold:
             lines = ["📊 *Результаты анализа файлов:*\n", "👥 *Участники чата:*"]
 
-            # Участники
             if participants_by_id:
                 for uid, data in participants_by_id.items():
-                    username = data["username"]
-                    lines.append(f"- {username} (`user{uid}`)")
+                    mentions = data.get("mentions", set())
+                    mentions_str = ", ".join(sorted(mentions)) if mentions else ""
+                    uid_string = f"({uid})" if uid not in (None, "", data.get('username', '')) else ""
+                    if mentions_str:
+                        lines.append(f"- {data.get('username', '')} {uid_string} → {mentions_str}")
+                    else:
+                        lines.append(f"- {data.get('username', '')} {uid_string}")
             else:
-                lines.append("_Нет участников_\n")
+                lines.append("_Нет участников_")
 
-            # Упоминания
             lines.append("\n🔔 *Упоминания (@username):*")
-            if participants_by_username:
-                for uname in participants_by_username:
+            if unmatched_mentions:
+                for uname in sorted(unmatched_mentions):
                     lines.append(f"- {uname}")
             else:
-                lines.append("_Нет упоминаний_")
+                lines.append("_Нет_")
 
-            message_text = "\n".join(lines)
-            await update.message.reply_text(message_text)
-            return list(participants_by_id.values())
+            await update.message.reply_text("\n".join(lines))
+            return
 
-        # ---------- ИНАЧЕ — ГЕНЕРИРУЕМ EXCEL ----------
+        # ---------- EXCEL ----------
         output = BytesIO()
-        generate_excel(participants_by_id, output)
-        output.seek(0)  # обязательно вернуться в начало файла
+        generate_excel(participants_by_id, unmatched_mentions, output)
+        output.seek(0)
 
-        await update.message.reply_document(document=output,
-                                            filename=f"participants_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
-
-        return "Файл отправлен"
+        await update.message.reply_document(
+            document=output,
+            filename=f"participants_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        )
 
     async def extract_participants_from_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         files = context.user_data.get("files", [])
 
         participants_by_id: Dict[str, Dict[str, Any]] = {}
-        participants_by_username: Dict[str, Dict[str, Any]] = {}
+        unmatched_mentions: Set[str] = set()
 
         for document in files:
             file = await document.get_file()
             data_bytes = await file.download_as_bytearray()
 
             try:
-                data = json.loads(data_bytes.decode("utf-8"))
+                messages = parse_telegram_export(data_bytes, document.file_name)
             except Exception as e:
-                # пропускаем файл, если не JSON
-                print(f"Не удалось распарсить файл: {e}")
+                print(f"Не удалось обработать файл {document.file_name}: {e}")
                 continue
 
-            messages = data.get("messages", [])
             for msg in messages:
 
-                # ---------- 1) Участники (from_id + from) ----------
+                # ---------- 1) Участники ----------
                 from_id = msg.get("from_id")
-                username = msg.get("from")
+                from_name_raw = msg.get("from")
+                from_name = normalize_username(from_name_raw)
 
-                if from_id and username and username != "Deleted Account":
-                    participants_by_id[from_id] = {"username": username}
+                if from_name and from_name != "Deleted Account":
+                    # Для HTML у нас нет from_id → используем имя как ключ
+                    uid = from_id or from_name
 
-                # ---------- 2) упоминания через text_entities ----------
-                for ent in msg.get("text_entities", []):
+                    if uid not in participants_by_id:
+                        participants_by_id[uid] = {
+                            "username": from_name,
+                            "mentions": set(),
+                        }
+                    else:
+                        if not participants_by_id[uid].get("username"):
+                            participants_by_id[uid]["username"] = from_name
+
+                # ---------- 2) Упоминания из entities (JSON) ----------
+                for ent in (msg.get("text_entities") or []):
                     if ent.get("type") == "mention":
-                        uname = ent.get("text")
-                        if uname and uname.startswith("@"):
-                            participants_by_username[uname] = True
+                        handle_mention(participants_by_id, unmatched_mentions, ent.get("text"))
 
-                # ---------- 3) упоминания в тексте ----------
-                text = extract_text(msg.get("text"))
-                for uname in self.USERNAME_REGEX.findall(text):
-                    participants_by_username[f"@{uname}"] = True
+                # ---------- 3) Упоминания в тексте (JSON + HTML) ----------
+                text = msg.get("text") or ""
 
-        return participants_by_id, participants_by_username
+                if isinstance(text, (bytes, bytearray)):
+                    text = text.decode("utf-8", errors="ignore")
 
+                for uname in (msg.get("html_mentions") or []):
+                    handle_mention(participants_by_id, unmatched_mentions, uname)
+
+        # если mention сопоставился участнику, он может остаться в unmatched_mentions
+        # на случай, когда участник встретился ПОЗЖЕ, чем mention.
+        matched = set()
+        for user in participants_by_id.values():
+            matched |= set(user.get("mentions", set()))
+        unmatched_mentions -= matched
+
+        return participants_by_id, unmatched_mentions

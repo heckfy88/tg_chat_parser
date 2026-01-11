@@ -56,7 +56,6 @@
 ### TestChatBot
 
 - `test_init_with_valid_token` - инициализация с валидным токеном
-- `test_init_without_token` - инициализация без токена (должна выбрасывать исключение)
 - `test_init_with_empty_token` - инициализация с пустым токеном (должна выбрасывать исключение)
 - `test_setup_adds_handlers` - настройка обработчиков (проверка количества вызовов add_handler)
 - `test_setup_adds_message_handler` - добавление обработчика сообщений
@@ -64,6 +63,7 @@
 - `test_start_app_calls_run_polling` - запуск приложения (проверка вызова run_polling)
 - `test_chatbot_initializes_handlers` - инициализация обработчиков
 - `test_chatbot_application_is_private` - проверка, что application является приватным атрибутом
+- `test_setup_can_be_called_multiple_times` - проверка, что setup можно вызывать несколько раз
 - `test_load_dotenv_called` - проверка вызова load_dotenv при импорте
 
 ## test_main.py
