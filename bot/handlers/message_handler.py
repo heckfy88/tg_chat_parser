@@ -9,7 +9,7 @@ load_dotenv()
 
 class CustomMessageHandler:
     _max_file_size: int = int(os.environ.get('MAX_FILE_SIZE', '50')) # ограничение размера файла ТГ, при изменении поменять значение в env
-    _max_files_amount: int = int(os.environ.get('MAX_FILES_AMOUNT', ''))
+    _max_files_amount: int = int(os.environ.get('MAX_FILES_AMOUNT', '10'))
 
     async def handle_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if (len(context.user_data.get("files", "")) + 1) > self._max_files_amount:

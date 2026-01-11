@@ -101,7 +101,7 @@ def parse_telegram_export(file_bytes: bytes, filename: str):
 
 
 class BotCommandHandler:
-    _excel_user_threshold: int = int(os.environ.get("EXCEL_USER_THRESHOLD", "200"))
+    _excel_user_threshold: int = int(os.environ.get("EXCEL_USER_THRESHOLD", "50"))
     USERNAME_REGEX = re.compile(r'@([A-Za-z0-9_]+)')
 
     def __init__(self):
