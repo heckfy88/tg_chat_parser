@@ -1,6 +1,17 @@
 import os
+import sys
 import pytest
 from unittest.mock import MagicMock, Mock, AsyncMock
+
+# Мокаем bs4 до импорта модулей бота
+if 'bs4' not in sys.modules:
+    mock_bs4 = MagicMock()
+    mock_beautiful_soup = MagicMock()
+    # Настройка мока BeautifulSoup для использования в коде
+    mock_beautiful_soup.return_value.select.return_value = []
+    mock_beautiful_soup.return_value.select_one.return_value = None
+    mock_bs4.BeautifulSoup = mock_beautiful_soup
+    sys.modules['bs4'] = mock_bs4
 
 
 def pytest_configure(config):
