@@ -8,7 +8,7 @@ load_dotenv()
 
 
 class CustomMessageHandler:
-    _max_file_size: int = int(os.environ.get('MAX_FILE_SIZE', '50'))
+    _max_file_size: int = int(os.environ.get('MAX_FILE_SIZE', '50')) # ограничение размера файла ТГ, при изменении поменять значение в env
     _max_files_amount: int = int(os.environ.get('MAX_FILES_AMOUNT', ''))
 
     async def handle_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -18,16 +18,11 @@ class CustomMessageHandler:
             return
 
         document = update.message.document
-        filename = (document.file_name or "").lower()
-
-        if not (filename.endswith(".json") or filename.endswith(".html") or filename.endswith(".htm")):
-            await update.message.reply_text("Принимаю только JSON или HTML файлы 📄")
-            return
 
         if document.file_size and document.file_size > (self._max_file_size * 1024 * 1024):
             await update.message.reply_text(
-                "Файл больше 50 МБ. Telegram не даёт боту скачать такие файлы.\n"
-                "Пожалуйста, разбейте файл на части менее 50 МБ и отправь несколько файлов."
+                f"Файл больше {self._max_file_size} МБ. Telegram не даёт боту скачать такие файлы.\n"
+                f"Пожалуйста, разбейте файл на части менее {self._max_file_size} МБ и отправь несколько файлов."
                 "Потом нажми /process."
             )
             return

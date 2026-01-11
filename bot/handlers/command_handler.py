@@ -1,4 +1,3 @@
-import json
 import os
 import re
 from datetime import datetime
@@ -6,13 +5,38 @@ from io import BytesIO
 from typing import Dict, Any, Set
 
 from dotenv import load_dotenv
+from openpyxl import Workbook
 from telegram import Update
 from telegram.ext import ContextTypes
-from openpyxl import Workbook
 
-from bs4 import BeautifulSoup
+from bot.util.file_util import parse_json_file, parse_html_file
 
 load_dotenv()
+
+USERNAME_RE = re.compile(r"@[A-Za-z0-9_]{5,32}")
+
+
+def handle_mention(
+        participants_by_id: Dict[str, Dict[str, Any]],
+        unmatched_mentions: Set[str],
+        mention: str
+):
+    if not isinstance(mention, str):
+        return
+
+    mention = mention.strip().lower()
+
+    if not USERNAME_RE.fullmatch(mention):
+        return
+
+    # ---------- сопоставление ----------
+    for user in participants_by_id.values():
+        name = (user.get("username") or "").strip().lower().lstrip("@")
+        if name == mention.lstrip("@"):
+            user["mentions"].add(mention)
+            return
+
+    unmatched_mentions.add(mention)
 
 
 def generate_excel(participants_by_id: Dict[str, Dict[str, Any]],
@@ -33,9 +57,11 @@ def generate_excel(participants_by_id: Dict[str, Dict[str, Any]],
         else:
             mentions_str = str(mentions) if mentions else ""
 
+        user_id_formatted_string = f"{user_id}" if user_id not in (None, "", data.get('username', '')) else ""
+
         ws.append([
             today,
-            user_id,
+            user_id_formatted_string,
             data.get("username", ""),
             mentions_str,
         ])
@@ -51,6 +77,7 @@ def generate_excel(participants_by_id: Dict[str, Dict[str, Any]],
 
     wb.save(output_file)
 
+
 def normalize_username(name: str) -> str:
     if not name:
         return ""
@@ -61,80 +88,14 @@ def normalize_username(name: str) -> str:
     return name
 
 
-
-def extract_text(text_field):
-    """text может быть строкой или массивом. Собираем всё в строку."""
-    if isinstance(text_field, str):
-        return text_field
-    if isinstance(text_field, list):
-        out = ""
-        for part in text_field:
-            if isinstance(part, str):
-                out += part
-            elif isinstance(part, dict):
-                out += part.get("text", "")
-        return out
-    return ""
-
 def parse_telegram_export(file_bytes: bytes, filename: str):
     filename = filename.lower()
 
-    # ---------- JSON ----------
     if filename.endswith(".json"):
-        data = json.loads(file_bytes.decode("utf-8"))
-        messages = []
-        for msg in data.get("messages", []):
-            messages.append({
-                "from_id": msg.get("from_id"),
-                "from": msg.get("from"),
-                "text": extract_text(msg.get("text")),
-                "text_entities": msg.get("text_entities", []),
-            })
-        return messages
+        return parse_json_file(file_bytes)
 
-    # ---------- HTML ----------
     if filename.endswith(".html") or filename.endswith(".htm"):
-        html_text = file_bytes.decode("utf-8", errors="ignore")
-
-        try:
-            soup = BeautifulSoup(html_text, "lxml")
-        except:
-            soup = BeautifulSoup(html_text, "html.parser")
-
-        messages = []
-
-        for msg_div in soup.select("div.message"):
-            from_name = None
-            from_span = msg_div.select_one(".from_name")
-            if from_span:
-                from_name = from_span.get_text(strip=True)
-
-            text_div = msg_div.select_one(".text")
-
-            text = ""
-            mentions = []
-
-            # text = text_div.get_text(" ", strip=True) if text_div else ""
-
-            if text_div:
-                text = text_div.get_text(" ", strip=True)
-
-                for a in text_div.find_all("a", href=True):
-                    href = a["href"]
-                    label = a.get_text(strip=True)
-
-                    if href.startswith("https://t.me/") and label.startswith("@"):
-                        mentions.append(label)
-
-            messages.append({
-                "from_id": None,
-                "from": from_name,
-                "text": text,
-                "html_mentions": mentions,
-                "text_entities": [],
-            })
-
-        return messages
+        return parse_html_file(file_bytes)
 
     raise ValueError("Unsupported file format")
 
@@ -151,12 +112,12 @@ class BotCommandHandler:
         context.user_data["files"] = []
 
         instructions = (
-            "Hi! I can analyze exported Telegram chat data.\n\n"
-            "📌 Please follow these steps:\n"
-            "1. Export your Telegram chat using the official export tool.\n"
-            "2. Make sure the file is in `.json` or `.html` format.\n"
-            "3. Send the `.json` or `.html` file directly to this bot.\n\n"
-            "I will process the data and provide you with insights!"
+            "Привет! Я - бот, который помогает анализировать групповые чаты Telegram\n"
+            "📌Для работы со мной следуй инструкции:\n"
+            "1. Экспортируй свой чат с помощью приложения Telegram.\n"
+            "2. Убедись, что ты получил файлы в форматах .json, .html или .htm.\n"
+            "3. Отправь файлы в чат со мной.\n"
+            "Я обработаю данные и покажу тебе сводку!"
         )
         await update.message.reply_text(instructions)
 
@@ -174,14 +135,15 @@ class BotCommandHandler:
                 for uid, data in participants_by_id.items():
                     mentions = data.get("mentions", set())
                     mentions_str = ", ".join(sorted(mentions)) if mentions else ""
+                    uid_string = f"({uid})" if uid not in (None, "", data.get('username', '')) else ""
                     if mentions_str:
-                        lines.append(f"- {data.get('username', '')} → {mentions_str}")
+                        lines.append(f"- {data.get('username', '')} {uid_string} → {mentions_str}")
                     else:
-                        lines.append(f"- {data.get('username', '')}")
+                        lines.append(f"- {data.get('username', '')} {uid_string}")
             else:
                 lines.append("_Нет участников_")
 
-            lines.append("\n🔔 *Несопоставленные упоминания (@username):*")
+            lines.append("\n🔔 *Упоминания (@username):*")
             if unmatched_mentions:
                 for uname in sorted(unmatched_mentions):
                     lines.append(f"- {uname}")
@@ -206,32 +168,6 @@ class BotCommandHandler:
 
         participants_by_id: Dict[str, Dict[str, Any]] = {}
         unmatched_mentions: Set[str] = set()
-
-        def handle_mention(mention: str):
-            """Пытаемся сопоставить mention с участником.
-            Если нельзя — кладём в unmatched_mentions.
-            """
-            if not isinstance(mention, str):
-                return
-
-            mention = mention.strip()
-            if not mention.startswith("@") or len(mention) <= 1:
-                return
-
-            mention_l = mention.lower()
-
-            # Сопоставляем только если у участника from выглядит как @username
-            for user in participants_by_id.values():
-                # name = (user.get("username") or "").strip().lower()
-                # if name.startswith("@") and name == mention_l:
-                #     user["mentions"].add(mention_l)
-                #     return
-                name = (user.get("username") or "").strip().lower().lstrip("@")
-                if name and name == mention_l.lstrip("@"):
-                    user["mentions"].add(mention_l)
-                    return
-
-            unmatched_mentions.add(mention_l)
 
         for document in files:
             file = await document.get_file()
@@ -266,7 +202,7 @@ class BotCommandHandler:
                 # ---------- 2) Упоминания из entities (JSON) ----------
                 for ent in (msg.get("text_entities") or []):
                     if ent.get("type") == "mention":
-                        handle_mention(ent.get("text"))
+                        handle_mention(participants_by_id, unmatched_mentions, ent.get("text"))
 
                 # ---------- 3) Упоминания в тексте (JSON + HTML) ----------
                 text = msg.get("text") or ""
@@ -274,14 +210,10 @@ class BotCommandHandler:
                 if isinstance(text, (bytes, bytearray)):
                     text = text.decode("utf-8", errors="ignore")
 
-                # for uname in self.USERNAME_REGEX.findall(text):
-                #     if uname:
-                #         handle_mention(f"@{uname}")
-
                 for uname in (msg.get("html_mentions") or []):
-                    handle_mention(uname)
+                    handle_mention(participants_by_id, unmatched_mentions, uname)
 
-        # (опционально) если mention сопоставился участнику, он может остаться в unmatched_mentions
+        # если mention сопоставился участнику, он может остаться в unmatched_mentions
         # на случай, когда участник встретился ПОЗЖЕ, чем mention.
         matched = set()
         for user in participants_by_id.values():

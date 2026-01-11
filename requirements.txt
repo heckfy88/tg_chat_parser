@@ -1,5 +1,8 @@
-python-dotenv
-python-telegram-bot
-openpyxl
+python-dotenv~=1.2.1
+python-telegram-bot~=22.5
+openpyxl~=3.1.5
+dotenv~=0.9.9
+beautifulsoup4~=4.14.3
+pytest~=9.0.2
 bs4
 lxml
